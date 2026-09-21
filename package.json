@@ -14,5 +14,8 @@
     "express-session": "^1.18.2",
     "pg": "^8.16.3",
     "connect-pg-simple": "^10.0.0"
+  },
+  "engines": {
+    "node": "24.x"
   }
 }
