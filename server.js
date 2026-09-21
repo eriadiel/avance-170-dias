@@ -4,8 +4,9 @@ const pgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 const { query, initDb, pool } = require('./db');
-const course = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/course.json'), 'utf8'));
+const course = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'data/course.json.gz'))).toString('utf8'));
 
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
