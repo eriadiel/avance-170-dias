@@ -41,7 +41,7 @@ async function studentFor(req,res) {
   return id;
 }
 app.post('/api/login',async(req,res)=>{
-  const email=String(req.body.email||'').trim().toLowerCase(), password=String(req.body.password||'');
+  const email=String(req.body.username||req.body.email||'').trim().toLowerCase(), password=String(req.body.password||'');
   if(email.length>254 || password.length>256) return res.status(400).json({error:'Credenciales inválidas'});
   const {rows}=await query('SELECT id,name,email,password_hash,role FROM users WHERE email=$1',[email]);
   const u=rows[0];
