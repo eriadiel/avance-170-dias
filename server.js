@@ -139,11 +139,6 @@ app.post('/api/verify', auth, role('tutor'), async (req, res, next) => {
 app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/*splat', (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Error interno del servidor' });
-});
-
 // Initialize the database once per serverless instance before serving requests.
 const dbReady = initDb().catch((err) => {
   console.error('No se pudo inicializar la base de datos:', err);
@@ -157,6 +152,11 @@ app.use(async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Error interno del servidor' });
 });
 
 // Vercel uses the exported Express app as the serverless entrypoint.
