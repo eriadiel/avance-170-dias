@@ -144,18 +144,35 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-const port = Number(process.env.PORT || 3000);
-
-initDb()
-  .then(() => {
-    app.listen(port, '0.0.0.0', () => console.log(`Sistema listo en puerto ${port}`));
-  })
-  .catch((err) => {
-    console.error('No se pudo inicializar la base de datos:', err);
-    process.exit(1);
-  });
-
-process.on('SIGTERM', async () => {
-  await pool.end();
-  process.exit(0);
+// Initialize the database once per serverless instance before serving requests.
+const dbReady = initDb().catch((err) => {
+  console.error('No se pudo inicializar la base de datos:', err);
+  throw err;
 });
+
+app.use(async (req, res, next) => {
+  try {
+    await dbReady;
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Vercel uses the exported Express app as the serverless entrypoint.
+module.exports = app;
+
+// Local development still works with "npm start".
+if (require.main === module) {
+  const port = Number(process.env.PORT || 3000);
+  dbReady
+    .then(() => {
+      app.listen(port, '0.0.0.0', () => console.log(`Sistema listo en puerto ${port}`));
+    })
+    .catch(() => process.exit(1));
+
+  process.on('SIGTERM', async () => {
+    await pool.end();
+    process.exit(0);
+  });
+}
