@@ -31,6 +31,21 @@ app.use(session({
 }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Initialize the database once per serverless instance before serving requests.
+const dbReady = initDb().catch((err) => {
+  console.error('No se pudo inicializar la base de datos:', err);
+  throw err;
+});
+
+app.use(async (req, res, next) => {
+  try {
+    await dbReady;
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 function auth(req, res, next) {
   if (!req.session.user) return res.status(401).json({ error: 'No autenticado' });
   next();
@@ -138,21 +153,6 @@ app.post('/api/verify', auth, role('tutor'), async (req, res, next) => {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/*splat', (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
-
-// Initialize the database once per serverless instance before serving requests.
-const dbReady = initDb().catch((err) => {
-  console.error('No se pudo inicializar la base de datos:', err);
-  throw err;
-});
-
-app.use(async (req, res, next) => {
-  try {
-    await dbReady;
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
 
 app.use((err, req, res, next) => {
   console.error(err);
