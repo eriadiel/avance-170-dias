@@ -82,7 +82,7 @@ app.post('/api/progress',auth,role('student'),async(req,res)=>{
     [req.session.user.id,classId,day,completed,note]);res.json({ok:true});
 });
 app.get('/api/students',auth,role('tutor'),async(req,res)=>{
-  const {rows}=await query("SELECT id,name,email FROM users WHERE role='student' ORDER BY name");res.json(rows);
+  const {rows}=await query("SELECT id,name,email FROM users WHERE role='student' ORDER BY CASE WHEN email='eriandres' THEN 0 ELSE 1 END,name");res.json(rows);
 });
 app.post('/api/verify',auth,role('tutor'),async(req,res)=>{
   const {studentId,classId,day,status}=req.body;
