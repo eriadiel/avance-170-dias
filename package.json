@@ -1,21 +1,25 @@
 {
   "name": "avance-170-dias",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Sistema de seguimiento de 170 días con roles estudiante y tutor.",
+  "description": "Sistema de seguimiento de 170 d\u00edas con roles estudiante y tutor.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.2",
-    "express": "^5.1.0",
-    "express-session": "^1.18.2",
-    "pg": "^8.16.3",
-    "connect-pg-simple": "^10.0.0"
+    "bcryptjs": "3.0.3",
+    "connect-pg-simple": "10.0.0",
+    "express": "5.2.1",
+    "express-session": "1.19.0",
+    "pg": "8.23.0"
   },
   "engines": {
     "node": "24.x"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.14"
   }
 }
