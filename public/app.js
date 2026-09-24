@@ -150,7 +150,7 @@ function paintChat(initial=false){
   const bottom=initial||box.scrollHeight-box.scrollTop-box.clientHeight<70;
   const rendered=new Set([...box.querySelectorAll('[data-message-id]')].map(e=>Number(e.dataset.messageId)));
   if(state.chat.messages.length){box.querySelector('.chat-empty')?.remove();for(const m of state.chat.messages)if(!rendered.has(m.id))box.insertAdjacentHTML('beforeend',chatMessage(m));}
-  else if(!box.children.length)box.innerHTML='<p class="chat-empty muted">'+(state.chat.loaded?'Todavía no hay mensajes. Escribe el primero.':'Cargando mensajes…')+'</p>';
+  else box.innerHTML='<p class="chat-empty muted">'+(state.chat.loaded?'Todavía no hay mensajes. Escribe el primero.':'Cargando mensajes…')+'</p>';
   document.getElementById('chat-older').hidden=!state.chat.hasOlder;
   document.getElementById('chat-error').textContent=state.chat.error;
   if(bottom){box.scrollTop=box.scrollHeight;markChatRead();}
