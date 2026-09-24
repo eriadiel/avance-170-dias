@@ -94,6 +94,42 @@ app.post('/api/verify',auth,role('tutor'),async(req,res)=>{
     [studentId,classId,day,status,String(req.body.note||'').slice(0,2000)]);
   if(!rowCount)return res.status(409).json({error:'El estudiante debe completar esta clase y día antes de verificarla'});res.json({ok:true});
 });
+
+const chatAuth=[auth,async(req,res,next)=>{
+  const {rows}=await query("SELECT id FROM users WHERE id=$1 AND role IN ('student','tutor')",[req.session.user.id]);
+  if(!rows.length)return res.status(403).json({error:'No tienes acceso al chat'});next();
+}];
+app.get('/api/chat',...chatAuth,async(req,res)=>{
+  const before=req.query.before===undefined?null:Number(req.query.before);
+  const after=req.query.after===undefined?null:Number(req.query.after);
+  if((before!==null&&!positiveInt(before))||(after!==null&&(!Number.isSafeInteger(after)||after<0))||(before!==null&&after!==null))return res.status(400).json({error:'Página inválida'});
+  const {rows}=await query(`SELECT m.id,m.author_id,m.body,m.created_at,u.name,u.role FROM chat_messages m JOIN users u ON u.id=m.author_id
+    WHERE ($1::integer IS NULL OR m.id<$1) AND ($2::integer IS NULL OR m.id>$2)
+    ORDER BY m.id ${after===null?'DESC':'ASC'} LIMIT 51`,[before,after]);
+  const hasMore=rows.length>50,messages=rows.slice(0,50);if(after===null)messages.reverse();
+  const unread=await query(`SELECT count(*)::int AS count FROM chat_messages WHERE author_id<>$1 AND id>COALESCE((SELECT last_message_id FROM chat_reads WHERE user_id=$1),0)`,[req.session.user.id]);
+  res.json({messages,hasMore,unread:unread.rows[0].count});
+});
+app.post('/api/chat',...chatAuth,async(req,res)=>{
+  const {body,clientId}=req.body;
+  if(typeof body!=='string'||!body.trim()||body.length>2000||typeof clientId!=='string'||! /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId))return res.status(400).json({error:'Escribe un mensaje de 1 a 2000 caracteres'});
+  const prior=await query('SELECT id FROM chat_messages WHERE author_id=$1 AND client_id=$2',[req.session.user.id,clientId]);
+  if(prior.rows.length)return res.json({ok:true,id:prior.rows[0].id});
+  const {rows}=await query(`INSERT INTO chat_messages(author_id,body,client_id)
+    SELECT $1,$2,$3 WHERE (SELECT count(*) FROM chat_messages WHERE author_id=$1 AND created_at>now()-interval '1 minute')<20
+    ON CONFLICT(author_id,client_id) DO UPDATE SET client_id=EXCLUDED.client_id RETURNING id`,[req.session.user.id,body.trim(),clientId]);
+  if(!rows.length)return res.status(429).json({error:'Espera un momento antes de enviar más mensajes'});
+  res.status(201).json({ok:true,id:rows[0].id});
+});
+app.post('/api/chat/read',...chatAuth,async(req,res)=>{
+  const id=req.body.lastId;
+  if(!Number.isSafeInteger(id)||id<0)return res.status(400).json({error:'Mensaje inválido'});
+  await query(`INSERT INTO chat_reads(user_id,last_message_id)
+    VALUES($1,LEAST($2,COALESCE((SELECT max(id) FROM chat_messages),0)))
+    ON CONFLICT(user_id) DO UPDATE SET last_message_id=GREATEST(chat_reads.last_message_id,EXCLUDED.last_message_id)`,[req.session.user.id,id]);
+  res.json({ok:true});
+});
+
 app.get('/health',async(req,res)=>{await query('SELECT class_id FROM class_progress LIMIT 0');res.json({ok:true,version:2,classes:CLASS_IDS.length});});
 app.use('/api',(req,res)=>res.status(404).json({error:'Ruta no encontrada'}));
 app.use(express.static(path.join(__dirname,'public'),{maxAge:0}));
