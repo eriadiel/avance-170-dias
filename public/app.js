@@ -35,6 +35,7 @@ function render(){
   app.querySelector('#day-select')?.addEventListener('change',e=>openLesson(state.classId,Number(e.target.value)));
   app.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>openLesson(state.classId,state.day+Number(b.dataset.step)));
   app.querySelector('#save-lesson')?.addEventListener('click',saveLesson);
+  bindAssessmentCalendar();
   bindChat();
   app.querySelectorAll('[data-verify]').forEach(b=>b.onclick=()=>verify(b.dataset.verify));
 }
@@ -102,16 +103,49 @@ function lessonBlocks(d){
 }
 
 
+
+function calendarToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Tegucigalpa',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+function shiftCalendarDate(key,days){const d=new Date(key+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);}
+function assessmentDates(mode,key){
+  const d=new Date(key+'T12:00:00Z');
+  if(mode==='day')return [key];
+  if(mode==='week'){const first=shiftCalendarDate(key,-((d.getUTCDay()+6)%7));return Array.from({length:7},(_,i)=>shiftCalendarDate(first,i));}
+  const first=key.slice(0,7)+'-01',start=shiftCalendarDate(first,-((new Date(first+'T12:00:00Z').getUTCDay()+6)%7));
+  const count=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();
+  const size=Math.ceil((((new Date(first+'T12:00:00Z').getUTCDay()+6)%7)+count)/7)*7;
+  return Array.from({length:size},(_,i)=>shiftCalendarDate(start,i));
+}
+function assessmentEvents(){
+  const dates=schoolCalendar(),events={};
+  state.course.classes.forEach((c,index)=>state.cache[c.id].days.forEach(d=>{
+    const items=lessonAssessments(d);if(!items.length)return;
+    const date=dates[d.day-1];(events[date]??=[]).push({classId:c.id,name:c.name,day:d.day,items,color:index});
+  }));
+  return events;
+}
 function assessmentsView(){
+  state.assessmentMode??='month';state.assessmentDate??=calendarToday();
+  const mode=state.assessmentMode,key=state.assessmentDate,today=calendarToday();
   const name=state.user.role==='tutor'?state.students.find(s=>s.id===state.studentId)?.name:state.user.name;
-  const intro=`<span class="eyebrow">PLAN DE EVALUACIONES · ${esc(name)}</span><h1>Quizes/Tests</h1><p class="muted">Consulta en qué lessons hay quizzes, tests o exámenes en cada asignatura. Abre una lección para ver sus instrucciones.</p><p class="hint">Se incluyen las menciones de Materials Needed; los recordatorios de evaluaciones futuras no se cuentan aquí. El estado corresponde al avance de la lección, no a una calificación.</p>`;
-  if(state.course.classes.some(c=>!state.cache[c.id]))return intro+'<div class="card empty" role="status">Cargando evaluaciones…</div><button class="secondary" data-view="assessments">Reintentar carga</button>';
-  return intro+state.course.classes.map(c=>{
-    const rows=state.cache[c.id].days.map(d=>({day:d.day,items:lessonAssessments(d)})).filter(d=>d.items.length).sort((a,b)=>a.day-b.day);
-    const quizzes=rows.filter(d=>d.items.some(t=>/\bquiz(?:zes)?\b/i.test(t))).length;
-    const tests=rows.filter(d=>d.items.some(t=>/\b(?:tests?|exams?|examinations?)\b/i.test(t))).length;
-    return `<section class="card assessment-subject"><h2>${esc(c.name)}</h2><p class="assessment-counts"><span>${rows.length} lessons con evaluaciones</span><span>${quizzes} con quiz</span><span>${tests} con test / examen</span></p><details><summary>Ver lessons de ${esc(c.name)}</summary>${rows.length?`<ul class="assessment-schedule">${rows.map(d=>`<li><button class="secondary" data-class="${esc(c.id)}" data-day="${d.day}" aria-label="Abrir ${esc(c.name)}, Lesson ${d.day}">Lesson ${d.day} <span aria-hidden="true">↗</span></button><div class="assessment-items">${d.items.map(t=>`<span>${esc(t)}</span>`).join('')}</div><div>${badge(getP(c.id,d.day))}</div></li>`).join('')}</ul>`:'<p>No hay quizzes, tests o exámenes indicados en los materiales de esta asignatura.</p>'}</details></section>`;
-  }).join('');
+  const intro=`<span class="eyebrow">PLAN DE EVALUACIONES · ${esc(name)}</span><h1>Quizes/Tests</h1><p class="muted">Calendario de las cinco asignaturas. Selecciona una evaluación para abrir su lesson.</p><p class="hint">Día 1: 21 de septiembre de 2026. Se excluyen fines de semana y vacaciones. Se muestran las menciones de Materials Needed, incluidas revisiones o devoluciones indicadas por el manual; consulta la lesson para ver qué corresponde hacer.</p>`;
+  if(state.course.classes.some(c=>!state.cache[c.id]))return intro+'<p role="status">Cargando calendario…</p><button data-view="assessments">Reintentar carga</button>';
+  const dates=assessmentDates(mode,key),school=schoolCalendar(),events=assessmentEvents();
+  const title=mode==='month'?schoolDateLabel(key,{month:'long',year:'numeric'}):mode==='week'?schoolDateLabel(dates[0])+' – '+schoolDateLabel(dates[6]):schoolDateLabel(key,{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  return intro+`<section class="card evaluation-calendar"><div class="evaluation-toolbar"><div class="actions"><button class="secondary" data-calendar-step="-1" aria-label="Periodo anterior">‹</button><button class="secondary" data-calendar-today>Hoy</button><button class="secondary" data-calendar-step="1" aria-label="Periodo siguiente">›</button></div><h2>${esc(title)}</h2><div class="evaluation-modes" aria-label="Vista del calendario">${[['month','Mes'],['week','Semana'],['day','Día']].map(([m,l])=>`<button class="secondary" data-calendar-mode="${m}" aria-pressed="${m===mode}">${l}</button>`).join('')}</div></div><div class="evaluation-legend">${state.course.classes.map((c,i)=>`<span class="subject-color-${i}">${esc(c.name)}</span>`).join('')}<span>☀ Vacaciones</span></div><div class="evaluation-scroll"><div class="evaluation-grid evaluation-${mode}">${mode!=='day'?['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d=>`<div class="evaluation-weekday">${d}</div>`).join(''):''}${dates.map(date=>{
+    const lesson=school.indexOf(date)+1,holiday=schoolHolidays.includes(date),list=events[date]||[],outside=mode==='month'&&!date.startsWith(key.slice(0,7));
+    return `<section class="evaluation-cell ${outside?'outside-month':''} ${date===today?'is-today':''} ${holiday?'is-holiday':''}" aria-label="${schoolDateLabel(date)}"><button class="evaluation-date" data-calendar-date="${date}" aria-label="Ver día ${schoolDateLabel(date)}">${mode==='day'?schoolDateLabel(date,{weekday:'long',day:'numeric',month:'long'}):Number(date.slice(-2))}${date===today?' · Hoy':''}</button><p class="evaluation-day-label">${holiday?'☀ Vacaciones':lesson?'Lesson '+lesson:'Sin clases programadas'}</p>${list.map(e=>`<button class="evaluation-event subject-color-${e.color}" data-class="${esc(e.classId)}" data-day="${e.day}"><strong>${esc(e.name)}</strong><span>${e.items.map(esc).join(' · ')}</span>${mode==='day'?badge(getP(e.classId,e.day)):''}</button>`).join('')}${lesson&&!list.length?'<p class="hint">Sin quizzes/tests en materiales</p>':''}</section>`;
+  }).join('')}</div></div></section>`;
+}
+function bindAssessmentCalendar(){
+  app.querySelectorAll('[data-calendar-mode]').forEach(b=>b.onclick=()=>{state.assessmentMode=b.dataset.calendarMode;render();});
+  app.querySelectorAll('[data-calendar-date]').forEach(b=>b.onclick=()=>{state.assessmentDate=b.dataset.calendarDate;state.assessmentMode='day';render();});
+  app.querySelector('[data-calendar-today]')?.addEventListener('click',()=>{state.assessmentDate=calendarToday();render();});
+  app.querySelectorAll('[data-calendar-step]').forEach(b=>b.onclick=()=>{
+    const step=Number(b.dataset.calendarStep),key=state.assessmentDate;
+    if(state.assessmentMode==='month'){const d=new Date(key.slice(0,7)+'-01T12:00:00Z');d.setUTCMonth(d.getUTCMonth()+step);state.assessmentDate=d.toISOString().slice(0,10);}
+    else state.assessmentDate=shiftCalendarDate(key,step*(state.assessmentMode==='week'?7:1));
+    render();
+  });
 }
 
 function classView(){
