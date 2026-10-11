@@ -56,17 +56,28 @@ app.post('/api/logout',async(req,res)=>{
   res.clearCookie('connect.sid',{httpOnly:true,sameSite:'lax',secure:production});res.json({ok:true});
 });
 app.get('/api/me',(req,res)=>res.json({user:req.session.user||null}));
-app.get('/api/course',auth,(req,res)=>res.json({totalDays:170,classes:curriculum.classes.map(({id,name,source})=>({id,name,source}))}));
-app.get('/api/course/:classId',auth,(req,res)=>{
+
+async function dailyStudent(id){const {rows}=await query("SELECT id FROM users WHERE id=$1 AND email='emalucia' AND role='student'",[id]);return rows.length>0;}
+const subjectsOnly=async(req,res,next)=>{
+ const id=req.session.user.role==='student'?req.session.user.id:req.query.studentId;
+ if(id&&await dailyStudent(Number(id)))return res.status(403).json({error:'Este estudiante utiliza avance diario, sin materias'});next();
+};
+
+app.get('/api/course',auth,async(req,res)=>{
+ const id=req.session.user.role==='student'?req.session.user.id:req.query.studentId;
+ const daily=id&&await dailyStudent(Number(id));
+ res.json({totalDays:170,mode:daily?'daily':'subjects',classes:daily?[]:curriculum.classes.map(({id,name,source})=>({id,name,source}))});
+});
+app.get('/api/course/:classId',auth,subjectsOnly,(req,res)=>{
   const subject=curriculum.classes.find(c=>c.id===req.params.classId);
   if(!subject) return res.status(404).json({error:'Clase no encontrada'});res.json(subject);
 });
-app.get('/api/progress',auth,async(req,res)=>{
+app.get('/api/progress',auth,subjectsOnly,async(req,res)=>{
   const id=await studentFor(req,res); if(id===null)return;
   const {rows}=await query('SELECT class_id,day,completed,completed_at,student_note,tutor_status,tutor_note,verified_at FROM class_progress WHERE student_id=$1 ORDER BY day,class_id',[id]);
   res.json({progress:rows,summary:summarize(rows)});
 });
-app.post('/api/progress',auth,role('student'),async(req,res)=>{
+app.post('/api/progress',auth,role('student'),subjectsOnly,async(req,res)=>{
   const {classId,day,completed}=req.body;
   if(!validLesson(classId,day)||typeof completed!=='boolean')return res.status(400).json({error:'Clase, día o estado inválido'});
   const note=String(req.body.note||'').slice(0,2000);
@@ -86,6 +97,7 @@ app.get('/api/students',auth,role('tutor'),async(req,res)=>{
 });
 app.post('/api/verify',auth,role('tutor'),async(req,res)=>{
   const {studentId,classId,day,status}=req.body;
+  if(await dailyStudent(studentId))return res.status(403).json({error:'Utiliza la verificación diaria de este estudiante'});
   if(!positiveInt(studentId)||!validLesson(classId,day)||!['verified','returned'].includes(status))return res.status(400).json({error:'Estudiante, clase, día o estado inválido'});
   const {rowCount}=await query(`UPDATE class_progress p SET tutor_status=$4,tutor_note=$5,
     verified_at=CASE WHEN $4='verified' THEN now() ELSE NULL END
@@ -93,6 +105,33 @@ app.post('/api/verify',auth,role('tutor'),async(req,res)=>{
       AND EXISTS(SELECT 1 FROM users u WHERE u.id=p.student_id AND u.role='student')`,
     [studentId,classId,day,status,String(req.body.note||'').slice(0,2000)]);
   if(!rowCount)return res.status(409).json({error:'El estudiante debe completar esta clase y día antes de verificarla'});res.json({ok:true});
+});
+
+
+app.get('/api/daily-progress',auth,async(req,res)=>{
+ const id=await studentFor(req,res);if(id===null)return;
+ if(!await dailyStudent(id))return res.status(403).json({error:'Este estudiante utiliza progreso por materias'});
+ const {rows}=await query('SELECT day,completed,tutor_status,completed_at,verified_at FROM daily_progress WHERE student_id=$1 ORDER BY day',[id]);
+ res.json({progress:rows});
+});
+app.post('/api/daily-progress',auth,role('student'),async(req,res)=>{
+ if(!await dailyStudent(req.session.user.id))return res.status(403).json({error:'Este estudiante utiliza progreso por materias'});
+ const {day,completed}=req.body;
+ if(!Number.isInteger(day)||day<1||day>170||typeof completed!=='boolean')return res.status(400).json({error:'Día o estado inválido'});
+ await query(`INSERT INTO daily_progress(student_id,day,completed,completed_at) VALUES($1,$2,$3,CASE WHEN $3 THEN now() ELSE NULL END)
+ ON CONFLICT(student_id,day) DO UPDATE SET completed=EXCLUDED.completed,
+ completed_at=CASE WHEN EXCLUDED.completed THEN COALESCE(daily_progress.completed_at,now()) ELSE NULL END,
+ tutor_status=CASE WHEN daily_progress.completed IS DISTINCT FROM EXCLUDED.completed THEN 'pending' ELSE daily_progress.tutor_status END,
+ verified_at=CASE WHEN daily_progress.completed IS DISTINCT FROM EXCLUDED.completed THEN NULL ELSE daily_progress.verified_at END`,[req.session.user.id,day,completed]);
+ res.json({ok:true});
+});
+app.post('/api/daily-verify',auth,role('tutor'),async(req,res)=>{
+ const {studentId,day,status}=req.body;
+ if(!positiveInt(studentId)||!Number.isInteger(day)||day<1||day>170||!['verified','returned'].includes(status))return res.status(400).json({error:'Datos inválidos'});
+ if(!await dailyStudent(studentId))return res.status(403).json({error:'Este estudiante utiliza progreso por materias'});
+ const {rowCount}=await query("UPDATE daily_progress SET tutor_status=$3,verified_at=CASE WHEN $3='verified' THEN now() ELSE NULL END WHERE student_id=$1 AND day=$2 AND completed=true",[studentId,day,status]);
+ if(!rowCount)return res.status(409).json({error:'Primero debe marcar el día como completado'});
+ res.json({ok:true});
 });
 
 const chatAuth=[auth,async(req,res,next)=>{

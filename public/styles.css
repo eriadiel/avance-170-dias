@@ -55,3 +55,5 @@ body.theme-rose{--primary:#92556e;--bg:#fff7fa;--text:#49333f;--muted:#806d77;--
 .theme-rose .chat-messages{background:#fff6fa;border-color:#efdae4}.theme-rose .chat-message.chat-own{background:#f9e4ee;border-color:#eac9d9}
 .theme-rose .evaluation-weekday{background:#faeaf2}.theme-rose .evaluation-date{color:#78465d}.theme-rose .evaluation-modes [aria-pressed=true]{background:#92556e}.theme-rose .evaluation-cell.is-today{box-shadow:inset 0 0 0 2px #b46b8c}
 .theme-rose button:focus-visible,.theme-rose input:focus-visible,.theme-rose select:focus-visible,.theme-rose textarea:focus-visible,.theme-rose summary:focus-visible{outline-color:#cd91af}.theme-rose input[type=checkbox]{accent-color:#92556e}
+
+.daily-work{padding:24px;margin:20px 0}.daily-work select{display:block;max-width:100%;padding:10px;margin-top:10px}.daily-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}.daily-grid button{display:grid;gap:8px;justify-items:center}.daily-grid .badge{font-size:10px;white-space:normal}.daily-grid+section{margin-top:24px}

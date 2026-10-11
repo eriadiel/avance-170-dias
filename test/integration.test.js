@@ -15,6 +15,7 @@ test('migration, APIs, role isolation and persistent sessions on PostgreSQL',asy
  await db.query("INSERT INTO users(name,email,password_hash,role) VALUES('Student','student@test.invalid',$1,'student'),('Tutor','tutor@test.invalid',$1,'tutor'),('Other','other@test.invalid',$1,'student')",[hash]);
  await db.exec("INSERT INTO progress VALUES(41,1,7,true,'2026-09-20T12:00Z','original evidence','verified','original feedback','2026-09-21T12:00Z');");
  await db.exec(fs.readFileSync(require.resolve('../database/chat.sql'),'utf8'));
+ await db.exec(fs.readFileSync(require.resolve('../database/daily.sql'),'utf8'));
  const before=(await db.query('SELECT * FROM progress')).rows;
  await db.exec(fs.readFileSync(require.resolve('../database/upgrade.sql'),'utf8'));
  assert.deepEqual((await db.query('SELECT * FROM progress')).rows,before);
@@ -89,7 +90,29 @@ test('migration, APIs, role isolation and persistent sessions on PostgreSQL',asy
   assert.equal((await db.query("SELECT relrowsecurity FROM pg_class WHERE relname='chat_messages'")).rows[0].relrowsecurity,true);
   await new Promise(r=>server.close(r));server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
   assert.equal((await request('/api/chat',{cookie:tutor})).body.messages.length,2);
+
+  await db.query("INSERT INTO users(name,email,password_hash,role) VALUES('Emalucia','emalucia',$1,'student')",[hash]);
+  const ema=(await request('/api/login',{body:{username:'emalucia',password}})).cookie;
+  const emaId=(await request('/api/me',{cookie:ema})).body.user.id;
+  const preserved=JSON.stringify((await db.query('SELECT * FROM class_progress ORDER BY student_id,class_id,day')).rows);
+  assert.equal((await request('/api/course',{cookie:ema})).body.classes.length,0);
+  assert.equal((await request('/api/course/science',{cookie:ema})).status,403);
+  assert.equal((await request('/api/progress',{cookie:ema})).status,403);
+  assert.equal((await request('/api/progress',{cookie:ema,body:{classId:'science',day:1,completed:true}})).status,403);
+  assert.equal((await request('/api/course?studentId='+emaId,{cookie:tutor})).body.classes.length,0);
+  assert.equal((await request('/api/daily-progress')).status,401);
+  assert.equal((await request('/api/daily-progress',{cookie:student,body:{day:1,completed:true}})).status,403);
+  assert.equal((await request('/api/daily-verify',{cookie:tutor,body:{studentId:emaId,day:1,status:'verified'}})).status,409);
+  assert.equal((await request('/api/daily-progress',{cookie:ema,body:{day:171,completed:true}})).status,400);
+  assert.equal((await request('/api/daily-progress',{cookie:ema,body:{day:1,completed:true}})).status,200);
+  assert.equal((await request('/api/daily-verify',{cookie:ema,body:{studentId:emaId,day:1,status:'verified'}})).status,403);
+  assert.equal((await request('/api/daily-verify',{cookie:tutor,body:{studentId:emaId,day:1,status:'verified'}})).status,200);
+  assert.equal((await request('/api/daily-progress',{cookie:ema})).body.progress[0].tutor_status,'verified');
+  await request('/api/daily-progress',{cookie:ema,body:{day:1,completed:false}});
+  assert.equal((await request('/api/daily-progress',{cookie:ema})).body.progress[0].tutor_status,'pending');
+  assert.equal(JSON.stringify((await db.query('SELECT * FROM class_progress ORDER BY student_id,class_id,day')).rows),preserved);
   await request('/api/logout',{cookie:student,method:'POST'});
+
   assert.equal((await request('/api/chat',{cookie:student})).status,401);
 
   assert.equal((await request('/api/progress',{cookie:student})).status,401);
