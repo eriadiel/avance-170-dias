@@ -9,6 +9,7 @@ async function api(url,opt={}){
   return d;
 }
 function login(message=''){
+  document.body.classList.remove('theme-rose');
   app.innerHTML=`<div class="login"><form class="login-card" id="login-form"><span class="eyebrow">APRENDER, DÍA A DÍA</span><h1>Avance 170 días</h1><p class="muted">Cinco materias. Un camino compartido entre estudiante y tutor.</p><div class="field"><label for="username">Usuario</label><input id="username" name="username" type="text" autocomplete="username" required></div><div class="field"><label for="password">Contraseña</label><input id="password" name="password" type="password" autocomplete="current-password" required></div><button type="submit">Entrar</button><p id="login-error" role="alert">${esc(message)}</p></form></div>`;
   document.getElementById('login-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,btn=form.querySelector('button');btn.disabled=true;try{const d=await api('/api/login',{method:'POST',body:JSON.stringify({username:form.username.value,password:form.password.value})});state=fresh();state.user=d.user;await load();}catch(e){document.getElementById('login-error').textContent=e.message;btn.disabled=false;}};
 }
@@ -26,6 +27,7 @@ function badge(p){const label=!p.completed?'Pendiente':p.tutor_status==='verifie
 function render(){
   if(!state.user)return login();
   const tutor=state.user.role==='tutor';
+  document.body.classList.toggle('theme-rose',state.user.email?.toLowerCase()==='emalucia');
   app.innerHTML=`<header class="topbar"><div class="inner"><div class="brand">Avance <span>170 días</span></div><div>${esc(state.user.name)} · ${tutor?'Tutor':'Estudiante'} <button class="secondary" data-action="logout">Salir</button></div></div></header><div class="container"><div class="layout"><aside class="sidebar card"><span class="eyebrow">MI PLAN DE ESTUDIO</span>${[['dashboard','Resumen'],['days','Vista por día'],['class','Mis materias'],['assessments','Quizes/Tests'],['chat','Chat']].map(([v,l])=>`<button class="${state.view===v?'active':''}" data-view="${v}">${l}${v==='chat'?' <span id="chat-unread" class="chat-unread" aria-label="Mensajes sin leer"></span>':''}</button>`).join('')}${tutor?'<p class="hint">Selecciona una materia y día para verificar el trabajo.</p>':''}</aside><main class="main">${tutor&&state.view!=='chat'?`<div class="field student-picker"><label for="student">Estudiante</label><select id="student">${state.students.map(s=>`<option value="${s.id}" ${s.id===state.studentId?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:''}<div role="status" class="notice" ${state.message?'':'hidden'}>${esc(state.message)}</div>${tutor&&!state.studentId&&state.view!=='chat'?'<div class="empty card">No hay estudiantes.</div>':state.view==='dashboard'?dashboard():state.view==='days'?daysView():state.view==='assessments'?assessmentsView():state.view==='chat'?chatView():classView()}</main></div></div>`;
   app.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
   app.querySelector('[data-action="logout"]').onclick=logout;

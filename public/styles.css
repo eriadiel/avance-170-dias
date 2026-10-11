@@ -45,3 +45,13 @@
 .tablet-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:210px;box-sizing:border-box;padding:20px 12px;text-align:center;border:1px solid #ffffff55;border-radius:12px;background:radial-gradient(ellipse at top right,#e2efff,transparent 75%),linear-gradient(150deg,#f3f5ff,#dfdaf7);color:#263855}
 .tablet-screen-label{font-size:10px;font-weight:800;letter-spacing:.18em;color:#596689}.tablet-screen strong{font-size:54px;line-height:1.1;margin:12px 0 6px;font-weight:800;letter-spacing:-.05em}.tablet-days{font-size:12px;line-height:1.5;max-width:145px}.tablet-screen .goal-reward{display:block;margin-top:17px;padding-top:12px;border-top:1px solid #8998bd55;font-size:13px;font-weight:700;line-height:1.5;color:#4f4184}.tablet-home{position:absolute;bottom:7px;left:calc(50% - 6px);width:12px;height:12px;border-radius:50%;border:1px solid #718093;background:#202833}
 @media(max-width:650px){.goal-tablet{flex:0 0 auto;align-self:center;width:210px;margin:8px 0}.goal-heading{align-items:stretch}}
+
+/* Emalucia's soft rose theme */
+body.theme-rose{--primary:#92556e;--bg:#fff7fa;--text:#49333f;--muted:#806d77;--line:#efdce5}
+.theme-rose .eyebrow{color:#96647c}.theme-rose .secondary{background:#f7e5ee;color:#80455f}.theme-rose .sidebar button.active{background:#f8e3ed;color:#78425a;border-color:#dfb7c9}
+.theme-rose .calendar-goal{background:linear-gradient(125deg,#fcebf3,#fff);border-color:#ebcbdc}.theme-rose .work-panel,.theme-rose .notice{background:#faeaf2}.theme-rose thead th{background:#f8e7ef}
+.theme-rose progress::-webkit-progress-bar{background:#f1e1e9}.theme-rose progress::-webkit-progress-value{background:var(--primary)}.theme-rose progress::-moz-progress-bar{background:var(--primary)}
+.theme-rose .lesson-pages{background:#fff5f9;border-color:#efdae4}.theme-rose .lesson-block h3{color:#78465d}.theme-rose .lesson-icon,.theme-rose .step-number{background:#f6e2ec;color:#8b526b}
+.theme-rose .chat-messages{background:#fff6fa;border-color:#efdae4}.theme-rose .chat-message.chat-own{background:#f9e4ee;border-color:#eac9d9}
+.theme-rose .evaluation-weekday{background:#faeaf2}.theme-rose .evaluation-date{color:#78465d}.theme-rose .evaluation-modes [aria-pressed=true]{background:#92556e}.theme-rose .evaluation-cell.is-today{box-shadow:inset 0 0 0 2px #b46b8c}
+.theme-rose button:focus-visible,.theme-rose input:focus-visible,.theme-rose select:focus-visible,.theme-rose textarea:focus-visible,.theme-rose summary:focus-visible{outline-color:#cd91af}.theme-rose input[type=checkbox]{accent-color:#92556e}
