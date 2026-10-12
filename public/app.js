@@ -192,16 +192,16 @@ async function verify(status){
   if(state.busy)return;const body={studentId:state.studentId,classId:state.classId,day:state.day,status,note:document.getElementById('tutor-note').value};state.busy=true;
   try{await api('/api/verify',{method:'POST',body:JSON.stringify(body)});await refresh();state.message=status==='verified'?'Lección verificada.':'Lección devuelta para revisión.';}catch(e){state.message=e.message;}finally{state.busy=false;render();}
 }
-async function logout(){try{await api('/api/logout',{method:'POST'});state=fresh();login();}catch(e){showError(e);}}
+async function logout(){try{await api('/api/logout',{method:'POST'});clearChatImage();state=fresh();login();}catch(e){showError(e);}}
 
 let chatTimer,chatFetching=false;
 function chatView(){
-  return `<span class="eyebrow">LOPEZCOTOACADEMY · SALA COMPARTIDA</span><h1>Chat</h1><p class="muted">Un espacio para estudiantes y tutores. Todos los usuarios pueden leer los mensajes de esta sala.</p><section class="card chat-card"><div class="chat-toolbar"><span id="chat-connection" role="status">Actualización automática cada pocos segundos</span><button id="chat-refresh" class="secondary">Actualizar</button></div><button id="chat-older" class="secondary" ${state.chat.hasOlder?'':'hidden'}>Cargar mensajes anteriores</button><div id="chat-messages" class="chat-messages" role="log" aria-label="Mensajes de la sala" aria-live="polite" aria-relevant="additions" tabindex="0"></div><p id="chat-error" role="alert"></p><form id="chat-form"><label for="chat-draft">Tu mensaje</label><textarea id="chat-draft" rows="3" maxlength="2000" placeholder="Escribe para la sala…" required>${esc(state.chat.draft)}</textarea><div class="chat-compose-footer"><span class="hint">Hasta 2000 caracteres · Shift + Enter para un salto de línea</span><button id="chat-send" type="submit" ${state.chat.sending?'disabled':''}>${state.chat.sending?'Enviando…':'Enviar'}</button></div></form></section>`;
+  return `<span class="eyebrow">LOPEZCOTOACADEMY · SALA COMPARTIDA</span><h1>Chat</h1><p class="muted">Un espacio para estudiantes y tutores. Todos los usuarios pueden leer los mensajes de esta sala.</p><section class="card chat-card"><div class="chat-toolbar"><span id="chat-connection" role="status">Actualización automática cada pocos segundos</span><button id="chat-refresh" class="secondary">Actualizar</button></div><button id="chat-older" class="secondary" ${state.chat.hasOlder?'':'hidden'}>Cargar mensajes anteriores</button><div id="chat-messages" class="chat-messages" role="log" aria-label="Mensajes de la sala" aria-live="polite" aria-relevant="additions" tabindex="0"></div><p id="chat-error" role="alert"></p><form id="chat-form"><label for="chat-draft">Tu mensaje</label><textarea id="chat-draft" rows="3" maxlength="2000" placeholder="Escribe para la sala…">${esc(state.chat.draft)}</textarea>${canAttachImage()?`<div class="chat-attachment-tools"><label class="image-picker" for="chat-image-file">Adjuntar imagen</label><input id="chat-image-file" type="file" accept="image/png,image/jpeg,image/webp" ${state.chat.sending?'disabled':''}><span class="hint">O pega un screenshot con Ctrl + V · PNG, JPG o WebP · hasta 5 MB</span></div><div id="chat-image-preview" class="chat-image-preview" ${state.chat.image?'':'hidden'}></div>`:''}<div class="chat-compose-footer"><span class="hint">Hasta 2000 caracteres · Shift + Enter para un salto de línea</span><button id="chat-send" type="submit" ${state.chat.sending?'disabled':''}>${state.chat.sending?'Enviando…':'Enviar'}</button></div></form></section>`;
 }
 function chatMessage(m){
   const own=m.author_id===state.user.id;
   const time=new Intl.DateTimeFormat('es-HN',{timeZone:'America/Tegucigalpa',dateStyle:'medium',timeStyle:'short'}).format(new Date(m.created_at));
-  return `<article class="chat-message ${own?'chat-own':''}" data-message-id="${m.id}"><header><strong>${esc(m.name)}</strong><span>${m.role==='tutor'?'Tutor':'Estudiante'}${own?' · Tú':''}</span><time datetime="${esc(m.created_at)}">${esc(time)}</time></header><p>${esc(m.body)}</p></article>`;
+  return `<article class="chat-message ${own?'chat-own':''}" data-message-id="${m.id}"><header><strong>${esc(m.name)}</strong><span>${m.role==='tutor'?'Tutor':'Estudiante'}${own?' · Tú':''}</span><time datetime="${esc(m.created_at)}">${esc(time)}</time></header>${m.body?`<p>${esc(m.body)}</p>`:''}${m.image_id?`<a class="chat-image-link" href="/api/chat/images/${encodeURIComponent(m.image_id)}" target="_blank" rel="noopener noreferrer" aria-label="Abrir imagen de ${esc(m.name)}"><img class="chat-image" src="/api/chat/images/${encodeURIComponent(m.image_id)}" alt="Imagen compartida por ${esc(m.name)}" loading="lazy" referrerpolicy="no-referrer"></a>`:''}</article>`;
 }
 function updateChatBadge(){
   const b=document.getElementById('chat-unread');if(b){b.textContent=state.chat.unread?String(state.chat.unread):'';b.hidden=!state.chat.unread;}
@@ -225,6 +225,7 @@ function bindChat(){
   draft.oninput=()=>{state.chat.draft=draft.value;state.chat.pending=null;};
   draft.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();form.requestSubmit();}};
   form.onsubmit=sendChat;
+  bindChatImages();
   document.getElementById('chat-refresh').onclick=()=>scheduleChat(0);
   document.getElementById('chat-older').onclick=olderChat;
   document.getElementById('chat-messages').onscroll=markChatRead;
@@ -267,14 +268,60 @@ async function olderChat(){
   }catch(e){if(state===session)document.getElementById('chat-error')?.replaceChildren(document.createTextNode(e.message));}
   finally{button.disabled=false;}
 }
+
+function canAttachImage(){return state.user?.email==='eri'&&state.user?.role==='tutor';}
+function clearChatImage(c=state.chat){
+ if(c.image?.url)URL.revokeObjectURL(c.image.url);
+ c.image=null;c.pending=null;
+}
+function paintChatImage(){
+ const el=document.getElementById('chat-image-preview');if(!el)return;
+ const image=state.chat.image;el.hidden=!image;
+ el.innerHTML=image?`<img src="${image.url}" alt="Vista previa de la imagen que vas a enviar"><div><strong>Imagen lista para enviar</strong><p class="hint">${(image.file.size/1024/1024).toFixed(2)} MB</p><button type="button" id="chat-image-remove" class="secondary" ${state.chat.sending?'disabled':''}>Quitar imagen</button></div>`:'';
+ document.getElementById('chat-image-remove')?.addEventListener('click',()=>{clearChatImage();paintChatImage();});
+}
+async function selectChatImage(file){
+ const session=state,c=session.chat;if(!canAttachImage()||c.sending||!file)return;
+ try{
+  if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size<1||file.size>5*1024*1024)throw new Error('Usa una imagen PNG, JPG o WebP de hasta 5 MB.');
+  const bitmap=await createImageBitmap(file);const pixels=bitmap.width*bitmap.height;bitmap.close();
+  if(pixels>40000000)throw new Error('La imagen es demasiado grande. Reduce sus dimensiones antes de enviarla.');
+  if(state!==session||c.sending)return;
+  clearChatImage(c);c.image={file,url:URL.createObjectURL(file),id:null};c.error='';paintChatImage();
+  document.getElementById('chat-error')?.replaceChildren();
+ }catch(e){const message=e.name==='InvalidStateError'?'No se pudo leer la imagen. Usa PNG, JPG o WebP.':e.message;c.error=message;document.getElementById('chat-error')?.replaceChildren(document.createTextNode(message));}
+}
+function bindChatImages(){
+ if(!canAttachImage())return;
+ const form=document.getElementById('chat-form');
+ form.addEventListener('paste',e=>{
+  const items=[...(e.clipboardData?.items||[])],image=items.find(i=>i.kind==='file'&&i.type.startsWith('image/'));
+  if(image){e.preventDefault();selectChatImage(image.getAsFile());}
+ });
+ document.getElementById('chat-image-file')?.addEventListener('change',e=>{selectChatImage(e.target.files[0]);e.target.value='';});
+ paintChatImage();
+}
 async function sendChat(e){
-  e.preventDefault();const session=state,c=session.chat;if(c.sending||!c.draft.trim())return;
-  const text=c.draft.trim();c.pending=c.pending||crypto.randomUUID();c.sending=true;c.error='';
-  const button=document.getElementById('chat-send');button.disabled=true;button.textContent='Enviando…';
-  try{await api('/api/chat',{method:'POST',body:JSON.stringify({body:text,clientId:c.pending})});if(state!==session)return;
-    if(c.draft.trim()===text){c.draft='';const field=document.getElementById('chat-draft');if(field)field.value='';}c.pending=null;scheduleChat(0);
-  }catch(e){if(state===session){c.error=e.message;const el=document.getElementById('chat-error');if(el)el.textContent=e.message;}}
-  finally{c.sending=false;button.disabled=false;button.textContent='Enviar';}
+ e.preventDefault();const session=state,c=session.chat;if(c.sending||(!c.draft.trim()&&!c.image))return;
+ const text=c.draft.trim(),attachment=c.image;
+ c.pending=c.pending||crypto.randomUUID();const clientId=c.pending;c.sending=true;c.error='';
+ const button=document.getElementById('chat-send'),draft=document.getElementById('chat-draft'),picker=document.getElementById('chat-image-file');
+ button.disabled=true;button.textContent=attachment?'Subiendo imagen…':'Enviando…';draft.disabled=true;if(picker)picker.disabled=true;paintChatImage();
+ try{
+  if(attachment&&!attachment.id){
+   const ticket=await api('/api/chat/images',{method:'POST',body:JSON.stringify({mime:attachment.file.type,size:attachment.file.size})});
+   const upload=await fetch(ticket.url,{method:'POST',headers:{'Content-Type':attachment.file.type,'x-image-ticket':ticket.token},body:attachment.file,signal:AbortSignal.timeout(90000),credentials:'omit',referrerPolicy:'no-referrer'});
+   const result=await upload.json();if(!upload.ok)throw new Error(result.error||'No se pudo subir la imagen. Intenta de nuevo.');
+   attachment.id=ticket.id;
+  }
+  if(state!==session)return;
+  button.textContent='Enviando…';
+  await api('/api/chat',{method:'POST',body:JSON.stringify({body:text,clientId,imageId:attachment?.id||null})});
+  if(state!==session)return;
+  if(c.draft.trim()===text){c.draft='';draft.value='';}
+  clearChatImage(c);paintChatImage();scheduleChat(0);
+ }catch(e){if(state===session){c.error=e.message;document.getElementById('chat-error')?.replaceChildren(document.createTextNode(e.message));}}
+ finally{c.sending=false;button.disabled=false;button.textContent='Enviar';draft.disabled=false;if(picker)picker.disabled=false;if(state===session)paintChatImage();}
 }
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.user)scheduleChat(0);});
 

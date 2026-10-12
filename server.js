@@ -3,6 +3,7 @@ const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const {randomBytes,randomUUID,createHash}=require('node:crypto');
 const { query, pool } = require('./db');
 const { CLASS_IDS, validLesson, summarize } = require('./progress');
 const curriculum = JSON.parse(require('zlib').gunzipSync(require('fs').readFileSync(path.join(__dirname,'data/curriculum.json.gz'))).toString('utf8'));
@@ -138,11 +139,43 @@ const chatAuth=[auth,async(req,res,next)=>{
   const {rows}=await query("SELECT id FROM users WHERE id=$1 AND role IN ('student','tutor')",[req.session.user.id]);
   if(!rows.length)return res.status(403).json({error:'No tienes acceso al chat'});next();
 }];
+
+const IMAGE_BRIDGE='https://efijxswzpaapuqwrardk.supabase.co/functions/v1/chat-images';
+const imageIdValid=id=>typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+async function imageTicket(id,action){
+ const token=randomBytes(32).toString('hex');
+ await query('DELETE FROM chat_image_tickets WHERE expires_at<now()');
+ await query("INSERT INTO chat_image_tickets(token_hash,image_id,action,expires_at) VALUES($1,$2,$3,now()+interval '2 minutes')",[createHash('sha256').update(token).digest('hex'),id,action]);
+ return token;
+}
+app.post('/api/chat/images',...chatAuth,async(req,res)=>{
+ const allowed=await query("SELECT id FROM users WHERE id=$1 AND email='eri' AND role='tutor'",[req.session.user.id]);
+ if(!allowed.rows.length)return res.status(403).json({error:'Solo eri puede adjuntar imágenes'});
+ const {mime,size}=req.body;
+ if(!['image/png','image/jpeg','image/webp'].includes(mime)||!Number.isInteger(size)||size<1||size>5242880)return res.status(400).json({error:'Usa PNG, JPG o WebP de hasta 5 MB'});
+ const id=randomUUID();
+ const result=await query(`INSERT INTO chat_images(id,author_id,mime,size)
+ SELECT $1,$2,$3,$4 WHERE (SELECT count(*) FROM chat_images WHERE author_id=$2 AND created_at>now()-interval '1 hour')<30 RETURNING id`,[id,req.session.user.id,mime,size]);
+ if(!result.rows.length)return res.status(429).json({error:'Límite de 30 imágenes por hora. Intenta más tarde.'});
+ res.status(201).json({id,url:IMAGE_BRIDGE,token:await imageTicket(id,'upload')});
+});
+app.get('/api/chat/images/:id',...chatAuth,async(req,res)=>{
+ if(!imageIdValid(req.params.id))return res.status(404).json({error:'Imagen no encontrada'});
+ const r=await query('SELECT i.id FROM chat_images i JOIN chat_messages m ON m.image_id=i.id WHERE i.id=$1 AND i.uploaded=true',[req.params.id]);
+ if(!r.rows.length)return res.status(404).json({error:'Imagen no encontrada'});
+ const token=await imageTicket(req.params.id,'read');
+ const upstream=await fetch(IMAGE_BRIDGE,{method:'POST',headers:{'x-image-ticket':token},signal:AbortSignal.timeout(25000)});
+ if(!upstream.ok)return res.status(503).json({error:'No se pudo abrir la imagen. Intenta de nuevo.'});
+ const d=await upstream.json();
+ if(typeof d.url!=='string'||!d.url.startsWith('https://efijxswzpaapuqwrardk.supabase.co/storage/v1/object/sign/chat-images/'))return res.status(502).end();
+ res.set('Referrer-Policy','no-referrer');res.redirect(302,d.url);
+});
+
 app.get('/api/chat',...chatAuth,async(req,res)=>{
   const before=req.query.before===undefined?null:Number(req.query.before);
   const after=req.query.after===undefined?null:Number(req.query.after);
   if((before!==null&&!positiveInt(before))||(after!==null&&(!Number.isSafeInteger(after)||after<0))||(before!==null&&after!==null))return res.status(400).json({error:'Página inválida'});
-  const {rows}=await query(`SELECT m.id,m.author_id,m.body,m.created_at,u.name,u.role FROM chat_messages m JOIN users u ON u.id=m.author_id
+  const {rows}=await query(`SELECT m.id,m.author_id,m.body,m.image_id,m.created_at,u.name,u.role FROM chat_messages m JOIN users u ON u.id=m.author_id
     WHERE ($1::integer IS NULL OR m.id<$1) AND ($2::integer IS NULL OR m.id>$2)
     ORDER BY m.id ${after===null?'DESC':'ASC'} LIMIT 51`,[before,after]);
   const hasMore=rows.length>50,messages=rows.slice(0,50);if(after===null)messages.reverse();
@@ -150,13 +183,17 @@ app.get('/api/chat',...chatAuth,async(req,res)=>{
   res.json({messages,hasMore,unread:unread.rows[0].count});
 });
 app.post('/api/chat',...chatAuth,async(req,res)=>{
-  const {body,clientId}=req.body;
-  if(typeof body!=='string'||!body.trim()||body.length>2000||typeof clientId!=='string'||! /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId))return res.status(400).json({error:'Escribe un mensaje de 1 a 2000 caracteres'});
+  const {body,clientId,imageId=null}=req.body;
+  if(typeof body!=='string'||(!body.trim()&&!imageId)||body.length>2000||(imageId!==null&&!imageIdValid(imageId))||typeof clientId!=='string'||! /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId))return res.status(400).json({error:'Escribe un mensaje de 1 a 2000 caracteres'});
   const prior=await query('SELECT id FROM chat_messages WHERE author_id=$1 AND client_id=$2',[req.session.user.id,clientId]);
   if(prior.rows.length)return res.json({ok:true,id:prior.rows[0].id});
-  const {rows}=await query(`INSERT INTO chat_messages(author_id,body,client_id)
-    SELECT $1,$2,$3 WHERE (SELECT count(*) FROM chat_messages WHERE author_id=$1 AND created_at>now()-interval '1 minute')<20
-    ON CONFLICT(author_id,client_id) DO UPDATE SET client_id=EXCLUDED.client_id RETURNING id`,[req.session.user.id,body.trim(),clientId]);
+  if(imageId){
+    const image=await query("SELECT i.id FROM chat_images i JOIN users u ON u.id=i.author_id WHERE i.id=$1 AND i.author_id=$2 AND i.uploaded=true AND i.created_at>now()-interval '24 hours' AND u.email='eri' AND u.role='tutor' AND NOT EXISTS(SELECT 1 FROM chat_messages m WHERE m.image_id=i.id)",[imageId,req.session.user.id]);
+    if(!image.rows.length)return res.status(400).json({error:'Imagen no disponible para enviar. Vuelve a adjuntarla.'});
+  }
+  const {rows}=await query(`INSERT INTO chat_messages(author_id,body,client_id,image_id)
+    SELECT $1,$2,$3,$4 WHERE (SELECT count(*) FROM chat_messages WHERE author_id=$1 AND created_at>now()-interval '1 minute')<20
+    ON CONFLICT(author_id,client_id) DO UPDATE SET client_id=EXCLUDED.client_id RETURNING id`,[req.session.user.id,body.trim(),clientId,imageId]);
   if(!rows.length)return res.status(429).json({error:'Espera un momento antes de enviar más mensajes'});
   res.status(201).json({ok:true,id:rows[0].id});
 });

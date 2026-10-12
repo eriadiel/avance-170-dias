@@ -7,7 +7,7 @@ const {randomBytes}=require('node:crypto');
 
 test('migration, APIs, role isolation and persistent sessions on PostgreSQL',async()=>{
  const db=new PGlite();
- await db.exec(`CREATE ROLE anon;CREATE ROLE authenticated;
+ await db.exec(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role;
  CREATE TABLE users(id serial PRIMARY KEY,name text,email text UNIQUE,password_hash text,role text);
  CREATE TABLE progress(id serial PRIMARY KEY,student_id integer REFERENCES users(id),day integer,completed boolean,completed_at timestamptz,student_note text,tutor_status text,tutor_note text,verified_at timestamptz,UNIQUE(student_id,day));
  CREATE TABLE user_sessions(sid varchar PRIMARY KEY,sess json NOT NULL,expire timestamp NOT NULL);`);
@@ -16,6 +16,7 @@ test('migration, APIs, role isolation and persistent sessions on PostgreSQL',asy
  await db.exec("INSERT INTO progress VALUES(41,1,7,true,'2026-09-20T12:00Z','original evidence','verified','original feedback','2026-09-21T12:00Z');");
  await db.exec(fs.readFileSync(require.resolve('../database/chat.sql'),'utf8'));
  await db.exec(fs.readFileSync(require.resolve('../database/daily.sql'),'utf8'));
+ await db.exec(fs.readFileSync(require.resolve('../database/chat-images.sql'),'utf8'));
  const before=(await db.query('SELECT * FROM progress')).rows;
  await db.exec(fs.readFileSync(require.resolve('../database/upgrade.sql'),'utf8'));
  assert.deepEqual((await db.query('SELECT * FROM progress')).rows,before);
@@ -110,6 +111,43 @@ test('migration, APIs, role isolation and persistent sessions on PostgreSQL',asy
   assert.equal((await request('/api/daily-progress',{cookie:ema})).body.progress[0].tutor_status,'verified');
   await request('/api/daily-progress',{cookie:ema,body:{day:1,completed:false}});
   assert.equal((await request('/api/daily-progress',{cookie:ema})).body.progress[0].tutor_status,'pending');
+  assert.equal(JSON.stringify((await db.query('SELECT * FROM class_progress ORDER BY student_id,class_id,day')).rows),preserved);
+
+  // Only eri can issue capabilities. Text chat and study progress remain independent.
+  await db.query("INSERT INTO users(name,email,password_hash,role) VALUES('Eri','eri',$1,'tutor')",[hash]);
+  const eri=(await request('/api/login',{body:{username:'eri',password}})).cookie;
+  const imageBody={mime:'image/png',size:68};
+  assert.equal((await request('/api/chat/images',{body:imageBody})).status,401);
+  for(const cookie of [student,tutor,ema])assert.equal((await request('/api/chat/images',{cookie,body:imageBody})).status,403);
+  assert.equal((await request('/api/chat/images',{cookie:eri,body:{mime:'image/svg+xml',size:40}})).status,400);
+  assert.equal((await request('/api/chat/images',{cookie:eri,body:{mime:'image/png',size:5242881}})).status,400);
+  assert.equal((await request('/api/chat/images',{cookie:eri,body:imageBody,headers:{Origin:'https://unrelated.invalid'}})).status,403);
+  const upload=(await request('/api/chat/images',{cookie:eri,body:imageBody}));assert.equal(upload.status,201);
+  const imageId=upload.body.id,imageClient=require('crypto').randomUUID();
+  assert.equal(upload.body.token.length,64);
+  const ticket=(await db.query('SELECT * FROM chat_image_tickets')).rows[0];
+  assert.equal(ticket.token_hash,require('crypto').createHash('sha256').update(upload.body.token).digest('hex'));
+  assert.equal((await request('/api/chat',{cookie:eri,body:{body:'',clientId:imageClient,imageId}})).status,400);
+  assert.equal((await request('/api/chat/images/'+imageId,{cookie:eri})).status,404);
+  await db.query('UPDATE chat_images SET uploaded=true WHERE id=$1',[imageId]);
+  assert.equal((await request('/api/chat',{cookie:student,body:{body:'',clientId:imageClient,imageId}})).status,400);
+  const imageMessage=await request('/api/chat',{cookie:eri,body:{body:'',clientId:imageClient,imageId}});
+  assert.equal(imageMessage.status,201);
+  assert.equal((await request('/api/chat',{cookie:eri,body:{body:'',clientId:imageClient,imageId}})).body.id,imageMessage.body.id);
+  assert.equal((await request('/api/chat',{cookie:eri,body:{body:'',clientId:require('crypto').randomUUID(),imageId}})).status,400);
+  for(const cookie of [student,tutor,ema])assert.equal((await request('/api/chat',{cookie})).body.messages.at(-1).image_id,imageId);
+  assert.equal((await request('/api/chat/images/'+imageId)).status,401);
+  // The signing boundary is mocked here; the deployed Storage bridge has its own tests.
+  const originalFetch=global.fetch;
+  global.fetch=async(url,options)=>String(url).includes('.supabase.co/functions/')?Response.json({url:'https://efijxswzpaapuqwrardk.supabase.co/storage/v1/object/sign/chat-images/'+imageId+'?token=test'}):originalFetch(url,options);
+  try{for(const cookie of [student,tutor,ema]){
+    const imageResponse=await originalFetch(base()+'/api/chat/images/'+imageId,{headers:{Cookie:cookie},redirect:'manual'});
+    assert.equal(imageResponse.status,302);assert.equal(imageResponse.headers.get('cache-control'),'no-store');
+  }}finally{global.fetch=originalFetch;}
+  for(const table of ['chat_images','chat_image_tickets']){
+    assert.equal((await db.query("SELECT has_table_privilege('anon',$1,'SELECT') AS allowed",[table])).rows[0].allowed,false);
+    assert.equal((await db.query("SELECT has_table_privilege('authenticated',$1,'INSERT') AS allowed",[table])).rows[0].allowed,false);
+  }
   assert.equal(JSON.stringify((await db.query('SELECT * FROM class_progress ORDER BY student_id,class_id,day')).rows),preserved);
   await request('/api/logout',{cookie:student,method:'POST'});
 

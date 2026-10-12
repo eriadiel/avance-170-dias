@@ -57,3 +57,14 @@ body.theme-rose{--primary:#92556e;--bg:#fff7fa;--text:#49333f;--muted:#806d77;--
 .theme-rose button:focus-visible,.theme-rose input:focus-visible,.theme-rose select:focus-visible,.theme-rose textarea:focus-visible,.theme-rose summary:focus-visible{outline-color:#cd91af}.theme-rose input[type=checkbox]{accent-color:#92556e}
 
 .daily-work{padding:24px;margin:20px 0}.daily-work select{display:block;max-width:100%;padding:10px;margin-top:10px}.daily-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}.daily-grid button{display:grid;gap:8px;justify-items:center}.daily-grid .badge{font-size:10px;white-space:normal}.daily-grid+section{margin-top:24px}
+
+/* Images remain private; these links resolve through the authenticated chat API. */
+.chat-attachment-tools{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0}
+.chat-attachment-tools input{max-width:100%;font-size:13px}
+.image-picker{font-weight:700}
+.chat-image-preview{display:flex;gap:16px;align-items:center;padding:14px;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;margin-bottom:12px}
+.chat-image-preview[hidden]{display:none}
+.chat-image-preview img{width:160px;height:120px;object-fit:contain;border-radius:8px;background:white}
+.chat-image-link{display:block;margin-top:10px;max-width:440px}
+.chat-image{display:block;width:auto;max-width:100%;max-height:360px;min-height:70px;object-fit:contain;border-radius:10px;border:1px solid #cbd5e1;background:#fff}
+@media(max-width:550px){.chat-image-preview{align-items:flex-start;flex-direction:column}.chat-image{max-height:280px}}
